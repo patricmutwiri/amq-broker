@@ -1,0 +1,108 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Production-oriented single-node baseline for ActiveMQ Artemis / Red Hat AMQ Broker.
+  This file is designed to live outside the container image and be mounted into the
+  broker instance configuration path by Podman Compose.
+
+  Notes:
+  - This sample assumes TLS on the core messaging port 61616.
+  - Paths align with the compose mounts under /etc/amq-certs.
+  - User accounts and role mappings are expected to come from the broker instance's
+    normal security files (e.g. artemis-users.properties / artemis-roles.properties)
+    or your chosen JAAS integration.
+  - HA / clustering settings are intentionally omitted for the single-node baseline.
+-->
+<configuration xmlns="urn:activemq"
+               xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+               xsi:schemaLocation="urn:activemq /schema/artemis-configuration.xsd">
+
+   <core xmlns="urn:activemq:core">
+      <name>amq-broker</name>
+      <persistence-enabled>true</persistence-enabled>
+      <journal-type>NIO</journal-type>
+      <journal-directory>data/journal</journal-directory>
+      <bindings-directory>data/bindings</bindings-directory>
+      <paging-directory>data/paging</paging-directory>
+      <large-messages-directory>data/large-messages</large-messages-directory>
+
+      <journal-datasync>true</journal-datasync>
+      <journal-sync-non-transactional>true</journal-sync-non-transactional>
+      <journal-sync-transactional>true</journal-sync-transactional>
+
+      <graceful-shutdown-enabled>true</graceful-shutdown-enabled>
+      <graceful-shutdown-timeout>60000</graceful-shutdown-timeout>
+      <security-enabled>true</security-enabled>
+      <wild-card-routing-enabled>true</wild-card-routing-enabled>
+      <message-counter-enabled>false</message-counter-enabled>
+      <management-address>activemq.management</management-address>
+      <management-notification-address>activemq.notifications</management-notification-address>
+      <configuration-file-refresh-period>5000</configuration-file-refresh-period>
+
+      <!--
+        Keep a low number of exposed connectors in single-node mode. Later HA work can
+        add dedicated cluster connectors and a distinct inter-node port.
+      -->
+      <connectors>
+         <connector name="core-tls">tcp://amq-broker-1:61616?sslEnabled=true</connector>
+      </connectors>
+
+      <acceptors>
+         <!--
+           TLS-enabled core acceptor on the same port published by compose.
+           Want mutual TLS later? Set needClientAuth=true and populate the truststore
+           with the client CA chain you trust.
+         -->
+         <acceptor name="core-tls">
+            tcp://0.0.0.0:61616?protocols=CORE,AMQP,OPENWIRE,HORNETQ,MQTT,STOMP;sslEnabled=true;keyStorePath=/etc/amq-certs/broker-keystore.p12;keyStorePassword=changeit;keyStoreType=PKCS12;trustStorePath=/etc/amq-certs/broker-truststore.p12;trustStorePassword=changeit;trustStoreType=PKCS12;needClientAuth=false;sslAutoReload=true;hostVerification=false;tcpSendBufferSize=1048576;tcpReceiveBufferSize=1048576
+         </acceptor>
+      </acceptors>
+
+      <security-settings>
+         <security-setting match="#">
+            <permission type="createNonDurableQueue" roles="admins"/>
+            <permission type="deleteNonDurableQueue" roles="admins"/>
+            <permission type="createDurableQueue" roles="admins"/>
+            <permission type="deleteDurableQueue" roles="admins"/>
+            <permission type="createAddress" roles="admins"/>
+            <permission type="deleteAddress" roles="admins"/>
+            <permission type="consume" roles="admins,producers,consumers"/>
+            <permission type="browse" roles="admins,consumers,auditors"/>
+            <permission type="send" roles="admins,producers"/>
+            <permission type="manage" roles="admins"/>
+         </security-setting>
+      </security-settings>
+
+      <address-settings>
+         <address-setting match="#">
+            <dead-letter-address>DLQ</dead-letter-address>
+            <expiry-address>ExpiryQueue</expiry-address>
+            <redelivery-delay>0</redelivery-delay>
+            <redelivery-delay-multiplier>1.5</redelivery-delay-multiplier>
+            <max-redelivery-delay>60000</max-redelivery-delay>
+            <max-delivery-attempts>10</max-delivery-attempts>
+            <max-size-bytes>104857600</max-size-bytes>
+            <page-size-bytes>10485760</page-size-bytes>
+            <address-full-policy>PAGE</address-full-policy>
+            <auto-create-queues>false</auto-create-queues>
+            <auto-create-addresses>false</auto-create-addresses>
+            <auto-delete-queues>false</auto-delete-queues>
+            <auto-delete-addresses>false</auto-delete-addresses>
+            <default-consumer-window-size>1048576</default-consumer-window-size>
+         </address-setting>
+      </address-settings>
+
+      <addresses>
+         <address name="DLQ">
+            <anycast>
+               <queue name="DLQ"/>
+            </anycast>
+         </address>
+         <address name="ExpiryQueue">
+            <anycast>
+               <queue name="ExpiryQueue"/>
+            </anycast>
+         </address>
+      </addresses>
+
+   </core>
+</configuration>

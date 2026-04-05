@@ -1,0 +1,101 @@
+services:
+  amq-broker:
+    # Pin a specific image tag or digest per environment. This default points to the
+    # Apache Artemis image, but BROKER_IMAGE can be swapped to a Red Hat AMQ Broker
+    # image such as registry.redhat.io/amq7/amq-broker-rhel8:<tag> without changing
+    # the rest of the deployment contract.
+    image: ${BROKER_IMAGE:?Set BROKER_IMAGE in the environment or .env}
+    container_name: ${BROKER_CONTAINER_NAME:-amq-broker}
+    hostname: ${BROKER_HOSTNAME:-amq-broker-1}
+
+    # "unless-stopped" is a strong production default for a single-node broker.
+    restart: unless-stopped
+    stop_grace_period: ${BROKER_STOP_GRACE_PERIOD:-2m}
+
+    # Resource controls are intentionally configurable so the same compose file can
+    # be reused across dev, staging, and production with environment-specific sizing.
+    mem_limit: ${BROKER_MEM_LIMIT:-2g}
+    cpus: ${BROKER_CPU_LIMIT:-2.0}
+    pids_limit: ${BROKER_PIDS_LIMIT:-512}
+
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    ulimits:
+      nofile:
+        soft: ${BROKER_NOFILE_SOFT_LIMIT:-65536}
+        hard: ${BROKER_NOFILE_HARD_LIMIT:-65536}
+
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=${BROKER_TMPFS_SIZE:-64m}
+
+    networks:
+      - broker_net
+
+    # Keep host exposure intentionally narrow. Defaults bind only to loopback so
+    # clients should come through a host firewall, VPN, SSH tunnel, or reverse proxy.
+    ports:
+      - ${BROKER_BIND_HOST:-127.0.0.1}:${BROKER_CORE_PORT:-61616}:61616/tcp
+      - ${BROKER_MANAGEMENT_BIND_HOST:-127.0.0.1}:${BROKER_MANAGEMENT_PORT:-8161}:8161/tcp
+
+    environment:
+      TZ: ${TZ:-UTC}
+
+      # Fail fast if admin credentials are missing. Do not commit real values.
+      ARTEMIS_USER: ${ARTEMIS_USER:?Set ARTEMIS_USER in the environment or .env}
+      ARTEMIS_PASSWORD: ${ARTEMIS_PASSWORD:?Set ARTEMIS_PASSWORD in the environment or .env}
+      ANONYMOUS_LOGIN: "false"
+
+      # These values are available for broker.xml/property placeholders in an
+      # externalized etc-override config. They make the stack TLS-ready without
+      # hard-coding certificate paths or keystore passwords into the compose file.
+      AMQ_TLS_ENABLED: ${AMQ_TLS_ENABLED:-false}
+      AMQ_KEYSTORE_PATH: ${AMQ_KEYSTORE_PATH:-/etc/amq-certs/broker-keystore.p12}
+      AMQ_KEYSTORE_PASSWORD: ${AMQ_KEYSTORE_PASSWORD:-changeit}
+      AMQ_TRUSTSTORE_PATH: ${AMQ_TRUSTSTORE_PATH:-/etc/amq-certs/broker-truststore.p12}
+      AMQ_TRUSTSTORE_PASSWORD: ${AMQ_TRUSTSTORE_PASSWORD:-changeit}
+
+      # Artemis official images use these values when creating the broker instance
+      # on first boot. We override the insecure Jolokia relaxation default and require
+      # authenticated logins from the beginning.
+      EXTRA_ARGS: >-
+        --host 0.0.0.0
+        --http-host 0.0.0.0
+        --no-autotune
+        ${ARTEMIS_EXTRA_ARGS:-}
+
+      # Keep JVM tuning externalized so environments can right-size memory and GC.
+      JAVA_ARGS_APPEND: >-
+        -Djava.net.preferIPv4Stack=true
+        ${JAVA_ARGS_APPEND:-}
+
+    volumes:
+      # Persistent broker state. This must live on durable storage in production.
+      - ${BROKER_INSTANCE_DIR:-./broker-instance}:/var/lib/artemis-instance:Z
+
+      # Externalized broker config. Drop in broker.xml, jolokia-access.xml,
+      # management.xml, artemis.profile, bootstrap.xml, login.config, etc.
+      - ${BROKER_ETC_OVERRIDE_DIR:-./config/etc-override}:/var/lib/artemis-instance/etc-override:Z,ro
+
+      # TLS assets stay outside the image and outside the persisted broker instance.
+      - ${BROKER_CERTS_DIR:-./certs}:/etc/amq-certs:Z,ro
+
+    # Container-local reachability is enough for liveness on a single-node baseline.
+    # If you later add a stronger readiness probe, prefer a broker-aware CLI check.
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "bash -ec ': >/dev/tcp/127.0.0.1/61616 && : >/dev/tcp/127.0.0.1/8161'",
+        ]
+      interval: ${BROKER_HEALTHCHECK_INTERVAL:-30s}
+      timeout: ${BROKER_HEALTHCHECK_TIMEOUT:-5s}
+      retries: ${BROKER_HEALTHCHECK_RETRIES:-5}
+      start_period: ${BROKER_HEALTHCHECK_START_PERIOD:-90s}
+
+networks:
+  broker_net:
+    name: ${BROKER_NETWORK_NAME:-amq-broker-net}
+    driver: bridge
+    internal: true
