@@ -35,7 +35,8 @@ The current baseline is designed for:
 
 Notes:
 
-- `certs/` and `broker-instance/` are local runtime materials and should not be committed.
+- `certs/amq-broker-root-ca.crt`, `certs/broker-keystore.p12`, and `certs/broker-truststore.p12` are committed as dev bootstrap materials.
+- `certs/amq-broker-root-ca.key` and `broker-instance/` are local runtime materials and should not be committed.
 - `broker-instance/` contains persisted broker state and the active generated instance config.
 - `config/etc-override/broker.xml` is the source-of-truth config baseline for this repo.
 
@@ -157,6 +158,110 @@ openssl s_client -connect 127.0.0.1:61616 -servername amq-broker.dev -showcerts
 - The broker listener is exposed on `61616`.
 - The healthcheck has a `90s` start period, so `starting` is expected immediately after boot.
 - The current broker instance persists data under `broker-instance/`.
+- The embedded web console on `apache/artemis:2.53.0` currently loads with an empty plugin list in this repo's tested setup, so Artemis queue administration is most reliable from the CLI commands below.
+
+## Queue Administration From The CLI
+
+The commands below were verified against the running Podman deployment in this repository.
+
+Set these shell variables once before running the examples:
+
+```bash
+export AMQ_USER=mutwiri
+export AMQ_PASSWORD=31344baee9daa086c1c2138857083a739f965ab57fcd7c060788d6ab74707d65
+export AMQ_URL='tcp://localhost:61616?sslEnabled=true;trustStorePath=/etc/amq-certs/broker-truststore.p12;trustStorePassword=changeit;trustStoreType=PKCS12;verifyHost=false'
+```
+
+`verifyHost=false` is required for the current dev certificate set because the broker certificate is issued for `amq-broker.dev`, while these examples connect through `localhost`.
+
+List queues:
+
+```bash
+podman exec amq-broker sh -lc '/var/lib/artemis-instance/bin/artemis queue stat --url "'"$AMQ_URL"'" --user "'"$AMQ_USER"'" --password "'"$AMQ_PASSWORD"'" --verbose'
+```
+
+Sample response:
+
+```text
+|NAME        |ADDRESS     |CONSUMER_COUNT|MESSAGE_COUNT|MESSAGES_ADDED|
+|DLQ         |DLQ         |0             |0            |0             |
+|ExpiryQueue |ExpiryQueue |0             |0            |0             |
+```
+
+Create a durable queue and its address:
+
+```bash
+podman exec amq-broker sh -lc '/var/lib/artemis-instance/bin/artemis queue create --name demoQueue --address demoQueue --anycast --auto-create-address --durable --url "'"$AMQ_URL"'" --user "'"$AMQ_USER"'" --password "'"$AMQ_PASSWORD"'" --silent'
+```
+
+Sample response:
+
+```text
+Queue demoQueue created successfully.
+```
+
+Send a test message:
+
+```bash
+podman exec amq-broker sh -lc '/var/lib/artemis-instance/bin/artemis producer --destination "demoQueue::demoQueue" --message-count 1 --message "hello from cli" --url "'"$AMQ_URL"'" --user "'"$AMQ_USER"'" --password "'"$AMQ_PASSWORD"'" --silent'
+```
+
+Sample response:
+
+```text
+Produced: 1 messages
+```
+
+Browse queued messages:
+
+```bash
+podman exec amq-broker sh -lc '/var/lib/artemis-instance/bin/artemis browser --destination queue://demoQueue --message-count 10 --url "'"$AMQ_URL"'" --user "'"$AMQ_USER"'" --password "'"$AMQ_PASSWORD"'" --verbose'
+```
+
+Sample response:
+
+```text
+Connection brokerURL = tcp://localhost:61616
+browsing hello from cli
+messages = 1
+browsed: 1 messages
+```
+
+Consume a single message:
+
+```bash
+podman exec amq-broker sh -lc '/var/lib/artemis-instance/bin/artemis consumer --destination "demoQueue::demoQueue" --message-count 1 --break-on-null --receive-timeout 1000 --url "'"$AMQ_URL"'" --user "'"$AMQ_USER"'" --password "'"$AMQ_PASSWORD"'" --silent'
+```
+
+Sample response:
+
+```text
+Consumed: 1 messages
+```
+
+Purge a queue without deleting it:
+
+```bash
+podman exec amq-broker sh -lc '/var/lib/artemis-instance/bin/artemis queue purge --name demoQueue --url "'"$AMQ_URL"'" --user "'"$AMQ_USER"'" --password "'"$AMQ_PASSWORD"'" --silent'
+```
+
+Sample response:
+
+```text
+Queue demoQueue purged successfully.
+```
+
+Delete the queue and remove its address:
+
+```bash
+podman exec amq-broker sh -lc '/var/lib/artemis-instance/bin/artemis queue delete --name demoQueue --autoDeleteAddress --url "'"$AMQ_URL"'" --user "'"$AMQ_USER"'" --password "'"$AMQ_PASSWORD"'" --silent'
+```
+
+Sample response:
+
+```text
+Queue demoQueue deleted successfully.
+```
 
 ## Important Config Behavior
 
