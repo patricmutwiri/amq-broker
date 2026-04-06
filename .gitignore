@@ -1,0 +1,3 @@
+.playwright-cli/
+broker-instance/
+certs/amq-broker-root-ca.key
