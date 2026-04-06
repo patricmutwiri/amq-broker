@@ -32,6 +32,7 @@
       <graceful-shutdown-enabled>true</graceful-shutdown-enabled>
       <graceful-shutdown-timeout>60000</graceful-shutdown-timeout>
       <security-enabled>true</security-enabled>
+      <jmx-management-enabled>true</jmx-management-enabled>
       <wild-card-routing-enabled>true</wild-card-routing-enabled>
       <message-counter-enabled>false</message-counter-enabled>
       <management-address>activemq.management</management-address>

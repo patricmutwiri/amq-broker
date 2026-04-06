@@ -5,6 +5,7 @@ services:
     # image such as registry.redhat.io/amq7/amq-broker-rhel8:<tag> without changing
     # the rest of the deployment contract.
     image: ${BROKER_IMAGE:?Set BROKER_IMAGE in the environment or .env}
+    platform: ${BROKER_PLATFORM:-linux/amd64}
     container_name: ${BROKER_CONTAINER_NAME:-amq-broker}
     hostname: ${BROKER_HOSTNAME:-amq-broker-1}
 
@@ -45,6 +46,9 @@ services:
       # Fail fast if admin credentials are missing. Do not commit real values.
       ARTEMIS_USER: ${ARTEMIS_USER:?Set ARTEMIS_USER in the environment or .env}
       ARTEMIS_PASSWORD: ${ARTEMIS_PASSWORD:?Set ARTEMIS_PASSWORD in the environment or .env}
+      # Red Hat AMQ Broker images expect AMQ_USER / AMQ_PASSWORD.
+      AMQ_USER: ${ARTEMIS_USER:?Set ARTEMIS_USER in the environment or .env}
+      AMQ_PASSWORD: ${ARTEMIS_PASSWORD:?Set ARTEMIS_PASSWORD in the environment or .env}
       ANONYMOUS_LOGIN: "false"
 
       # These values are available for broker.xml/property placeholders in an
